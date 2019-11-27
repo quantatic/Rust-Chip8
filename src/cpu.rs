@@ -1,4 +1,5 @@
 use crate::display::Display;
+use crate::keypad::Keypad;
 use crate::ram::Ram;
 
 use std::io::Read;
@@ -7,9 +8,10 @@ use std::convert::TryFrom;
 
 use rand;
 
-pub struct Cpu<'a, 'b> {
+pub struct Cpu<'a, 'b, 'c> {
     ram: &'a mut Ram,
     display: &'b mut Display,
+    keypad: &'c mut Keypad,
     regs: [u8; 16],
     pc: u16,
     stack: [u16; 16],
@@ -19,11 +21,12 @@ pub struct Cpu<'a, 'b> {
     st: u8,
 }
 
-impl<'a, 'b> Cpu<'a, 'b> {
-    pub fn new(ram: &'a mut Ram, display: &'b mut Display) -> Self {
+impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
+    pub fn new(ram: &'a mut Ram, display: &'b mut Display, keypad: &'c mut Keypad) -> Self {
         Cpu {
             ram,
             display,
+            keypad,
             regs: [0; 16],
             pc: 0x200,
             stack: [0; 16],
@@ -124,6 +127,7 @@ impl<'a, 'b> Cpu<'a, 'b> {
         }
 
         //self.print_opcode(op);
+        self.keypad.check_for_exit();
         self.run_opcode(op);
         self.display.redraw();
     }
@@ -189,15 +193,16 @@ impl<'a, 'b> Cpu<'a, 'b> {
 
     fn ret(&mut self) {
         assert!(self.sp > 0);
-        self.pc = self.stack[usize::from(self.sp)];
+
         self.sp -= 1;
+        self.pc = self.stack[usize::from(self.sp)];
     }
 
     fn jp_addr(&mut self, addr: u16) {
         assert!(addr < 4095);
 
         if self.pc == addr {
-            panic!("Infinite loop detected. Will exit now.");
+            //panic!("Infinite loop detected. Will exit now.");
         }
 
         self.pc = addr
@@ -206,8 +211,9 @@ impl<'a, 'b> Cpu<'a, 'b> {
     fn call_addr(&mut self, addr: u16) {
         assert!(addr < 4095);
 
+        self.stack[usize::from(self.sp)] = self.pc + 2;
         self.sp += 1;
-        self.stack[usize::from(self.sp)] = self.pc;
+
         self.pc = addr;
     }
 
@@ -253,7 +259,8 @@ impl<'a, 'b> Cpu<'a, 'b> {
     fn add_vx_byte(&mut self, reg: u8, byte: u8) {
         assert!(reg < 16);
 
-        self.regs[usize::from(reg)] += byte;
+        self.regs[usize::from(reg)] =
+            self.regs[usize::from(reg)].wrapping_add(byte);
 
         self.pc += 2;
     }
@@ -272,6 +279,8 @@ impl<'a, 'b> Cpu<'a, 'b> {
         assert!(vy < 16);
 
         self.regs[usize::from(vx)] |= self.regs[usize::from(vy)];
+
+        self.pc += 2;
     }
 
     fn and_vx_vy(&mut self, vx: u8, vy: u8) {
@@ -279,6 +288,8 @@ impl<'a, 'b> Cpu<'a, 'b> {
         assert!(vy < 16);
 
         self.regs[vx as usize] &= self.regs[vy as usize];
+
+        self.pc += 2;
     }
 
     fn xor_vx_vy(&mut self, vx: u8, vy: u8) {
@@ -286,39 +297,54 @@ impl<'a, 'b> Cpu<'a, 'b> {
         assert!(vy < 16);
 
         self.regs[vx as usize] ^= self.regs[vy as usize];
+
+        self.pc += 2;
     }
 
     fn add_vx_vy(&mut self, vx: u8, vy: u8) {
         assert!(vx < 16);
         assert!(vy < 16);
 
-        self.regs[vx as usize] += self.regs[vy as usize];
+        self.regs[vx as usize] =
+            self.regs[vx as usize].wrapping_add(self.regs[vy as usize]);
+
+        self.pc += 2;
     }
 
     fn sub_vx_vy(&mut self, vx: u8, vy: u8) {
         assert!(vx < 16);
         assert!(vy < 16);
 
-        self.regs[vx as usize] -= self.regs[vy as usize];
+        self.regs[vx as usize] =
+            self.regs[vx as usize].wrapping_sub(self.regs[vy as usize]);
+
+        self.pc += 2;
     }
 
     fn shr_vx(&mut self, vx: u8) {
         assert!(vx < 16);
 
         self.regs[usize::from(vx)] /= 2;
+
+        self.pc += 2;
     }
 
     fn subn_vx_vy(&mut self, vx: u8, vy: u8) {
         assert!(vx < 16);
         assert!(vy < 16);
 
-        self.regs[usize::from(vx)] = self.regs[usize::from(vy)] - self.regs[usize::from(vx)];
+        self.regs[usize::from(vx)] =
+            self.regs[usize::from(vy)].wrapping_sub(self.regs[usize::from(vx)]);
+
+        self.pc += 2;
     }
 
     fn shl_vx(&mut self, vx: u8) {
         assert!(vx < 16);
 
-        self.regs[usize::from(vx)] *= 2;
+        self.regs[usize::from(vx)].wrapping_mul(2);
+
+        self.pc += 2;
     }
 
     fn sne_vx_vy(&mut self, reg1: u8, reg2: u8) {
@@ -373,16 +399,20 @@ impl<'a, 'b> Cpu<'a, 'b> {
         self.pc += 2;
     }
 
-    fn skp_vx(&mut self, _vx: u8) {
-        /* TODO */
-        println!("skp_vx TODO");
+    fn skp_vx(&mut self, vx: u8) {
+        if self.keypad.button_is_pressed(self.regs[usize::from(vx)]) {
+            self.pc += 2;
+        }
 
         self.pc += 2;
     }
 
-    fn sknp_vx(&mut self, _vx: u8) {
-        /* TODO */
-        println!("skp_vx TODO");
+    fn sknp_vx(&mut self, vx: u8) {
+        if !self.keypad.button_is_pressed(self.regs[usize::from(vx)]) {
+            self.pc += 2;
+        }
+
+        self.pc += 2;
     }
 
     fn ld_vx_dt(&mut self, vx: u8) {
@@ -424,9 +454,8 @@ impl<'a, 'b> Cpu<'a, 'b> {
         self.pc += 2;
     }
 
-    fn ld_f_vx(&mut self, _vx: u8) {
-        /* TODO */
-        println!("ld_f_vx TODO");
+    fn ld_f_vx(&mut self, vx: u8) {
+        self.i = u16::from(self.regs[usize::from(vx)] * 5);
 
         self.pc += 2;
     }
@@ -437,20 +466,18 @@ impl<'a, 'b> Cpu<'a, 'b> {
 
         let val = self.regs[usize::from(vx)];
 
-        self.ram.set(self.i, (val / 100) * 100);
-        self.ram.set(self.i + 1, ((val % 100) / 10) * 10);
+        self.ram.set(self.i, val / 100);
+        self.ram.set(self.i + 1, (val % 100) / 10);
         self.ram.set(self.i + 2, val % 10);
 
         self.pc += 2;
-
-        println!("Val: {} -> ({}, {}, {})", val, self.ram.read(self.i), self.ram.read(self.i + 1), self.ram.read(self.i + 2));
     }
 
     fn ld_i_vx(&mut self, vx: u8) {
         assert!(vx < 16);
         assert!(self.i + (vx as u16) < 4095);
 
-        for i in 0..vx {
+        for i in 0..=vx {
             self.ram.set(self.i + i as u16, self.regs[usize::from(i)]);
         }
 
@@ -461,7 +488,7 @@ impl<'a, 'b> Cpu<'a, 'b> {
         assert!(vx < 16);
         assert!(self.i + (vx as u16) < 4095);
 
-        for i in 0..vx {
+        for i in 0..=vx {
             self.regs[usize::from(i)] = self.ram.read(self.i + (i as u16));
         }
 
