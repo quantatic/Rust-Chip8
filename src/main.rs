@@ -1,13 +1,20 @@
 mod cpu;
 mod display;
+mod keypad;
 mod ram;
 
 use crate::cpu::Cpu;
 use crate::display::Display;
+use crate::keypad::Keypad;
 use crate::ram::Ram;
 
+use sdl2::event::Event;
+
 fn main() {
-    let mut display = Display::new(20);
+    let sdl_context = sdl2::init().unwrap();
+
+    let mut display = Display::new(&sdl_context, 20);
+    let mut keypad = Keypad::new(&sdl_context);
     let mut ram = Ram::new();
     let mut cpu = Cpu::new(&mut ram, &mut display);
 
@@ -20,8 +27,14 @@ fn main() {
         println!();
     }
 
-    for _ in 0..500 {
+    loop {
+        for event in sdl_context.event_pump().unwrap().poll_iter() {
+            if let Event::Quit{ .. } = event {
+                panic!("Quitting!");
+            }
+        };
+
         cpu.tick();
-        std::thread::sleep(std::time::Duration::new(0, 30_000_000));
+        std::thread::sleep(std::time::Duration::new(0, 50_000_000));
     }
 }

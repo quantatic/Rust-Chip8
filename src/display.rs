@@ -11,9 +11,8 @@ pub struct Display {
 }
 
 impl Display {
-    pub fn new(scale: u8) -> Self {
+    pub fn new(sdl_context: &sdl2::Sdl, scale: u8) -> Self {
         let vram = [[false; 32]; 64];
-        let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
         let window = video_subsystem.window("Chip-8 Terminal Window", 64 * u32::from(scale), 32 * u32::from(scale))
