@@ -8,10 +8,10 @@ use std::convert::TryFrom;
 
 use rand;
 
-pub struct Cpu<'a, 'b, 'c> {
+pub struct Cpu<'a> {
     ram: &'a mut Ram,
-    display: &'b mut Display,
-    keypad: &'c mut Keypad,
+    display: &'a mut Display,
+    keypad: &'a mut Keypad,
     regs: [u8; 16],
     pc: u16,
     stack: [u16; 16],
@@ -21,8 +21,8 @@ pub struct Cpu<'a, 'b, 'c> {
     st: u8,
 }
 
-impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
-    pub fn new(ram: &'a mut Ram, display: &'b mut Display, keypad: &'c mut Keypad) -> Self {
+impl<'a> Cpu<'a> {
+    pub fn new(ram: &'a mut Ram, display: &'a mut Display, keypad: &'a mut Keypad) -> Self {
         Cpu {
             ram,
             display,
@@ -67,7 +67,6 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
             );
 
         match nibbles {
-            (0x0, 0x0, 0x0, 0x0) => println!("NOP"),
             (0x0, 0x0, 0xE, 0x0) => println!("CLS"),
             (0x0, 0x0, 0xE, 0xE) => println!("RET"),
             (0x1, _, _, _) => println!("JP 0x{:04x}", nnn),
@@ -102,7 +101,7 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
             (0xF, x, 0x3, 0x3) => println!("LD B, V{:01x}", x),
             (0xF, x, 0x5, 0x5) => println!("LD [I], V{:01x}", x),
             (0xF, x, 0x6, 0x5) => println!("LD V{:01x}, [I]", x),
-            (_, _, _, _) => println!("(0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x})", nibbles.0, nibbles.1, nibbles.2, nibbles.3),
+            (_, _, _, _) => println!("UNKNOWN OPCODE: (0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x})", nibbles.0, nibbles.1, nibbles.2, nibbles.3),
         };
 
         //println!("(0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x})", nibbles.0, nibbles.1, nibbles.2, nibbles.3);
@@ -143,7 +142,6 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
             );
 
         match nibbles {
-            (0x0, 0x0, 0x0, 0x0) => self.nop(),
             (0x0, 0x0, 0xE, 0x0) => self.cls(),
             (0x0, 0x0, 0xE, 0xE) => self.ret(),
             (0x1, _, _, _) => self.jp_addr(nnn),
