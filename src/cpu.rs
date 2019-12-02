@@ -85,7 +85,7 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
             (0x8, x, y, 0x5) => println!("SUB V{:01x}, V{:01x}", x, y),
             (0x8, x, _, 0x6) => println!("SHR V{:01x}", x),
             (0x8, x, y, 0x7) => println!("SUBN V{:01x}, V{:01x}", x, y),
-            (0x8, x, _, 0xE) => println!("SHR V{:01x}", x),
+            (0x8, x, _, 0xE) => println!("SHL V{:01x}", x),
             (0x9, x, y, 0x0) => println!("SNE V{:01x}, V{:01x}", x, y),
             (0xA, _, _, _) => println!("LD I, 0x{:04x}", nnn),
             (0xB, _, _, _) => println!("JP V00, 0x{:04x}", nnn),
@@ -324,7 +324,8 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
     fn shr_vx(&mut self, vx: u8) {
         assert!(vx < 16);
 
-        self.regs[usize::from(vx)] /= 2;
+        self.regs[usize::from(vx)] =
+            self.regs[usize::from(vx)].wrapping_div(2);
 
         self.pc += 2;
     }
@@ -342,7 +343,8 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
     fn shl_vx(&mut self, vx: u8) {
         assert!(vx < 16);
 
-        self.regs[usize::from(vx)].wrapping_mul(2);
+        self.regs[usize::from(vx)] =
+            self.regs[usize::from(vx)].wrapping_mul(2);
 
         self.pc += 2;
     }
@@ -423,11 +425,12 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
         self.pc += 2;
     }
 
-    fn ld_vx_k(&mut self, _vx: u8) {
-        /* TODO */
-        println!("ld_vx_k TODO");
+    fn ld_vx_k(&mut self, vx: u8) {
+        assert!(vx < 16);
 
-        loop { }
+        self.regs[usize::from(vx)] = self.keypad.next_button_pressed();
+
+        self.pc += 2;
     }
 
     fn ld_dt_vx(&mut self, vx: u8) {
@@ -455,6 +458,7 @@ impl<'a, 'b, 'c> Cpu<'a, 'b, 'c> {
     }
 
     fn ld_f_vx(&mut self, vx: u8) {
+        println!("Getting font for: {} at: {}", self.regs[usize::from(vx)], self.regs[usize::from(vx)] * 5);
         self.i = u16::from(self.regs[usize::from(vx)] * 5);
 
         self.pc += 2;

@@ -8,8 +8,6 @@ use crate::display::Display;
 use crate::keypad::Keypad;
 use crate::ram::Ram;
 
-use sdl2::event::Event;
-
 fn main() {
     let sdl_context = sdl2::init().unwrap();
 
@@ -27,6 +25,6 @@ fn main() {
 
     loop {
         cpu.tick();
-        std::thread::sleep(std::time::Duration::new(0, 10_000_000));
+        std::thread::sleep(std::time::Duration::new(0, 5_000_000));
     }
 }

@@ -13,14 +13,12 @@ impl Keypad {
         }
     }
 
-    pub fn check_for_exit(&mut self) -> bool {
+    pub fn check_for_exit(&mut self) {
         for event in self.events.poll_iter() {
             if let Event::Quit{ .. } = event {
                 panic!("Exiting!");
             }
         }
-
-        false
     }
 
     pub fn button_is_pressed(&mut self, key: u8) -> bool {
