@@ -2,11 +2,15 @@ use crate::display::Display;
 use crate::keypad::Keypad;
 use crate::ram::Ram;
 
-use std::io::Read;
-use std::fs::File;
 use std::convert::TryFrom;
+use std::fs::File;
+use std::io::Read;
+use std::time::Duration;
+use std::time::Instant;
 
 use rand;
+
+const TIME_PER_TIMER_DECREMENT: Duration = Duration::from_millis(1000 / 60);
 
 pub struct Cpu<'a> {
     ram: &'a mut Ram,
@@ -19,6 +23,7 @@ pub struct Cpu<'a> {
     i: u16,
     dt: u8,
     st: u8,
+    last_timer_decrement: std::time::Instant,
 }
 
 impl<'a> Cpu<'a> {
@@ -34,6 +39,7 @@ impl<'a> Cpu<'a> {
             i: 0x0,
             dt: 0x0,
             st: 0x0,
+            last_timer_decrement: Instant::now(),
         }
     }
 
@@ -117,12 +123,16 @@ impl<'a> Cpu<'a> {
         print!("[0x{:04x}]: ", self.pc);
         self.print_opcode(op);
 
-        if self.dt > 0 {
-            self.dt -= 1;
-        }
+        while self.last_timer_decrement.elapsed() > TIME_PER_TIMER_DECREMENT {
+            if self.dt > 0 {
+                self.dt -= 1;
+            }
 
-        if self.st > 0 {
-            self.st -= 1;
+            if self.st > 0 {
+                self.st -= 1;
+            }
+
+            self.last_timer_decrement += TIME_PER_TIMER_DECREMENT;
         }
 
         //self.print_opcode(op);
@@ -164,7 +174,7 @@ impl<'a> Cpu<'a> {
             (0xA, _, _, _) => self.ld_i_addr(nnn),
             (0xB, _, _, _) => self.jp_v0_addr(nnn),
             (0xC, x, _, _) => self.rnd_vx_byte(x, nn),
-            (0xD, x, y, n) => self.draw_vx_vy_nibble(x, y, n),
+            (0xD, x, y, n) => self.drw_vx_vy_nibble(x, y, n),
             (0xE, x, 0x9, 0xE) => self.skp_vx(x),
             (0xE, x, 0xA, 0x1) => self.sknp_vx(x),
             (0xF, x, 0x0, 0x7) => self.ld_vx_dt(x),
@@ -303,8 +313,11 @@ impl<'a> Cpu<'a> {
         assert!(vx < 16);
         assert!(vy < 16);
 
-        self.regs[vx as usize] =
-            self.regs[vx as usize].wrapping_add(self.regs[vy as usize]);
+        let (new_val, overflow) =
+            self.regs[vx as usize].overflowing_add(self.regs[vy as usize]);
+
+        self.regs[vx as usize] = new_val;
+        self.regs[0xF] = u8::from(overflow);
 
         self.pc += 2;
     }
@@ -313,8 +326,11 @@ impl<'a> Cpu<'a> {
         assert!(vx < 16);
         assert!(vy < 16);
 
-        self.regs[vx as usize] =
-            self.regs[vx as usize].wrapping_sub(self.regs[vy as usize]);
+        let (new_val, overflow) =
+            self.regs[vx as usize].overflowing_sub(self.regs[vy as usize]);
+
+        self.regs[0xF] = u8::from(overflow);
+        self.regs[vx as usize] = new_val;
 
         self.pc += 2;
     }
@@ -322,8 +338,8 @@ impl<'a> Cpu<'a> {
     fn shr_vx(&mut self, vx: u8) {
         assert!(vx < 16);
 
-        self.regs[usize::from(vx)] =
-            self.regs[usize::from(vx)].wrapping_div(2);
+        self.regs[0xF] = self.regs[usize::from(vx)] & 0b00000001;
+        self.regs[usize::from(vx)] >>= 1;
 
         self.pc += 2;
     }
@@ -332,8 +348,11 @@ impl<'a> Cpu<'a> {
         assert!(vx < 16);
         assert!(vy < 16);
 
-        self.regs[usize::from(vx)] =
-            self.regs[usize::from(vy)].wrapping_sub(self.regs[usize::from(vx)]);
+        let (new_val, overflow) =
+            self.regs[usize::from(vy)].overflowing_sub(self.regs[usize::from(vx)]);
+
+        self.regs[0xF] = u8::from(overflow);
+        self.regs[vx as usize] = new_val;
 
         self.pc += 2;
     }
@@ -341,8 +360,8 @@ impl<'a> Cpu<'a> {
     fn shl_vx(&mut self, vx: u8) {
         assert!(vx < 16);
 
-        self.regs[usize::from(vx)] =
-            self.regs[usize::from(vx)].wrapping_mul(2);
+        self.regs[0xF] = self.regs[usize::from(vx)] & 0b10000000;
+        self.regs[usize::from(vx)] <<= 1;
 
         self.pc += 2;
     }
@@ -376,13 +395,14 @@ impl<'a> Cpu<'a> {
         self.pc += 2;
     }
 
-    fn draw_vx_vy_nibble(&mut self, reg1: u8, reg2: u8, nibble: u8) {
+    fn drw_vx_vy_nibble(&mut self, reg1: u8, reg2: u8, nibble: u8) {
         assert!(reg1 < 16);
         assert!(reg2 < 16);
 
         let x = self.regs[usize::from(reg1)] % 64;
         let y = self.regs[usize::from(reg2)] % 32;
 
+        let mut pixel_erased = false;
         for yy in 0..nibble {
             let row_val = self.ram.read(self.i + u16::from(yy));
             for xx in 0..8 {
@@ -391,10 +411,14 @@ impl<'a> Cpu<'a> {
                 }
 
                 let pixel_flip = (row_val & (0x1 << (7 - xx))) != 0;
-                let new_pixel = self.display.vram_get(x + xx, y + yy) ^ pixel_flip;
-                self.display.vram_set(x + xx, y + yy, new_pixel);
+                let old_pixel = self.display.vram_get(x + xx, y + yy);
+
+                pixel_erased |= pixel_flip && old_pixel; // pixel erased when old pixel and pixel will be flipped
+                self.display.vram_set(x + xx, y + yy, old_pixel ^ pixel_flip);
             }
         }
+
+        self.regs[0xF] = u8::from(pixel_erased);
 
         self.pc += 2;
     }

@@ -16,7 +16,8 @@ fn main() {
     let mut ram = Ram::new();
     let mut cpu = Cpu::new(&mut ram, &mut display, &mut keypad);
 
-    cpu.load_rom_into_ram("roms/keypad.ch8").expect("Failed to load CPU rom");
+    //cpu.load_rom_into_ram("roms/keypad.ch8").expect("Failed to load CPU rom");
+    cpu.load_rom_into_ram("roms/invaders.ch8").expect("Failed to load CPU rom");
 
     cpu.disas();
     for _ in 0..5 {
@@ -25,6 +26,6 @@ fn main() {
 
     loop {
         cpu.tick();
-        std::thread::sleep(std::time::Duration::new(0, 5_000_000));
+        std::thread::sleep(std::time::Duration::new(0, 1_000_000_000 / 500));
     }
 }
