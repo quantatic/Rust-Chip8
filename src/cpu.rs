@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use rand;
 
-const TIME_PER_TIMER_DECREMENT: Duration = Duration::from_millis(1000 / 60);
+const TIME_PER_TIMER_DECREMENT: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
 pub struct Cpu<'a> {
     ram: &'a mut Ram,
@@ -135,7 +135,6 @@ impl<'a> Cpu<'a> {
             self.last_timer_decrement += TIME_PER_TIMER_DECREMENT;
         }
 
-        //self.print_opcode(op);
         self.keypad.check_for_exit();
         self.run_opcode(op);
         self.display.redraw();
